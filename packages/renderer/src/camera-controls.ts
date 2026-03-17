@@ -6,11 +6,12 @@
  * Camera orbit, pan, and zoom controls.
  *
  * Orbit uses a pivot point:
- * - Default pivot = camera.target (standard orbit)
- * - When orbitCenter is set (e.g. selected object), both position AND target
- *   rotate around it. This preserves the viewing direction while orbiting
- *   around the selected object — standard BIM behavior where selecting an
- *   object doesn't move the camera, only changes the orbit pivot.
+ * - Default pivot = camera.target (standard orbit — position rotates, target stays)
+ * - When orbitCenter is set (raycast hit / selected object), position orbits
+ *   around the pivot and the look direction is rotated by the exact same
+ *   axis-angle rotation (Rodrigues). A small vertical clamp on the look
+ *   direction prevents the view matrix from degenerating (model flip).
+ *   Approach mirrors Blender's turntable: Y-axis horizontal + right-axis vertical.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -64,6 +65,47 @@ function cross(a: Vec3, b: Vec3): Vec3 {
     y: a.z * b.x - a.x * b.z,
     z: a.x * b.y - a.y * b.x,
   };
+}
+
+function dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+/** Rodrigues' rotation: rotate v around unit axis k by angle radians. */
+function rodrigues(v: Vec3, k: Vec3, angle: number): Vec3 {
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const kDotV = dot(k, v);
+  const kxv = cross(k, v);
+  return {
+    x: v.x * cosA + kxv.x * sinA + k.x * kDotV * (1 - cosA),
+    y: v.y * cosA + kxv.y * sinA + k.y * kDotV * (1 - cosA),
+    z: v.z * cosA + kxv.z * sinA + k.z * kDotV * (1 - cosA),
+  };
+}
+
+/**
+ * Prevent the look direction from being too close to ±Y (vertical),
+ * which degenerates the view matrix (cross(forward, up) → 0 → model flips).
+ * Preserves the horizontal direction; only pulls the Y component back.
+ * Margin of ~0.6° from vertical — user can look 89.4° up/down.
+ */
+const MAX_LOOK_Y = Math.cos(0.01); // cos(0.01 rad) ≈ 0.99995
+
+function clampLookVertical(look: Vec3): Vec3 {
+  const len = length(look);
+  if (len < 1e-10) return look;
+
+  const ny = look.y / len;
+  if (Math.abs(ny) <= MAX_LOOK_Y) return look;
+
+  const clampedNy = Math.sign(ny) * MAX_LOOK_Y;
+  const horizSq = look.x * look.x + look.z * look.z;
+  if (horizSq < 1e-20) return look; // purely vertical, can't recover direction
+
+  const targetHoriz = len * Math.sqrt(1 - clampedNy * clampedNy);
+  const hScale = targetHoriz / Math.sqrt(horizSq);
+  return { x: look.x * hScale, y: clampedNy * len, z: look.z * hScale };
 }
 
 /** Add offset to a Vec3 in place */
@@ -147,9 +189,10 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set (selected object), both position AND target
-   * rotate around the orbit center. The camera never moves on selection
-   * alone — only when the user actually drags to rotate.
+   * When orbitCenter is set, position orbits around the external pivot and
+   * the look direction is rotated by the same axis-angle rotation (Rodrigues).
+   * Like Blender's turntable: horizontal = world Y, vertical = camera right.
+   * A vertical clamp on the look vector prevents view matrix degeneracy.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -160,7 +203,7 @@ export class CameraControls {
     if (this.orbitCenter !== null) {
       this.orbitAroundExternalPivot(this.orbitCenter, dx, dy);
     } else {
-      // Standard: rotate position around target
+      // Standard: rotate position around target, target stays fixed
       const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
       copyInto(this.state.camera.position, newPos);
     }
@@ -181,24 +224,55 @@ export class CameraControls {
   }
 
   /**
-   * Orbit both camera.position and camera.target around an external pivot.
-   * Position rotates fully (theta + phi). Target only rotates horizontally
-   * (theta) so vertical dragging changes the viewing angle without moving
-   * the model up/down.
+   * Orbit around an external pivot (Blender-style turntable with Rodrigues).
+   *
+   * 1. Horizontal: rotate offset + look around world Y (always stable).
+   * 2. Vertical: rotate offset + look around the orbit-sphere tangent
+   *    (right axis derived from offset's horizontal component). Position
+   *    phi is clamped to [MIN_PHI, MAX_PHI] so the right axis never
+   *    degenerates (sin(MIN_PHI) ≈ 0.15 → always has XZ component).
+   * 3. Clamp the look vector's vertical angle to prevent the view matrix
+   *    from degenerating when look ∥ Y. Margin is ~0.6° from vertical,
+   *    so the user can look from 89.4° above or below.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    copyInto(this.state.camera.position,
-      this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
+    let offset = sub(this.state.camera.position, pivot);
+    const dist = length(offset);
+    if (dist < 1e-6) return;
+    let look = sub(this.state.camera.target, this.state.camera.position);
 
-    // Target: horizontal rotation only (dx), keep Y fixed
-    const tx = this.state.camera.target.x - pivot.x;
-    const tz = this.state.camera.target.z - pivot.z;
-    const thetaTgt = Math.atan2(tx, tz) + dx;
-    const horizDist = Math.sqrt(tx * tx + tz * tz);
+    const yAxis: Vec3 = { x: 0, y: 1, z: 0 };
 
-    this.state.camera.target.x = pivot.x + horizDist * Math.sin(thetaTgt);
-    this.state.camera.target.z = pivot.z + horizDist * Math.cos(thetaTgt);
-    // target.y stays unchanged
+    // 1. Horizontal rotation around world Y (always stable)
+    offset = rodrigues(offset, yAxis, dx);
+    look = rodrigues(look, yAxis, dx);
+
+    // 2. Vertical rotation, clamped to prevent position from crossing poles
+    const offsetDir = scale(offset, 1 / dist);
+    const currentPhi = Math.acos(Math.max(-1, Math.min(1, offsetDir.y)));
+    const clampedDy = clampPhi(currentPhi + dy) - currentPhi;
+
+    if (Math.abs(clampedDy) > 1e-10) {
+      // Right axis = tangent to orbit sphere in the phi-increasing direction.
+      // {offset.z, 0, -offset.x} ensures positive angle → phi increases
+      // (camera moves down), matching the spherical-coord convention used
+      // by clampedDy. Always valid because phi is clamped away from the
+      // pole, so offset always has a horizontal component.
+      const rightN = normalize({ x: offset.z, y: 0, z: -offset.x });
+      offset = rodrigues(offset, rightN, clampedDy);
+      look = rodrigues(look, rightN, clampedDy);
+    }
+
+    // 3. Prevent view flip: clamp look direction away from ±Y
+    look = clampLookVertical(look);
+
+    const newPos = { x: pivot.x + offset.x, y: pivot.y + offset.y, z: pivot.z + offset.z };
+    copyInto(this.state.camera.position, newPos);
+    copyInto(this.state.camera.target, {
+      x: newPos.x + look.x,
+      y: newPos.y + look.y,
+      z: newPos.z + look.z,
+    });
   }
 
   // -------------------------------------------------------------------------
