@@ -445,14 +445,11 @@ impl GeometryRouter {
             }
         };
 
-        // SAFETY: Skip void subtraction for elements with too many openings
-        // This prevents CSG operations from causing panics or excessive processing time
-        // Elements with many openings (like curtain walls) are better handled without CSG
-        const MAX_OPENINGS: usize = 15;
-        if opening_ids.len() > MAX_OPENINGS {
-            // Just return the base mesh without void subtraction
-            return self.process_element(element, decoder);
-        }
+        // No blanket opening-count gate here. Rectangular and diagonal openings use
+        // fast AABB clipping with no per-element limit. NonRectangular (CSG) openings
+        // are independently capped by MAX_CSG_OPERATIONS below, so elements with many
+        // complex openings degrade gracefully rather than skipping void subtraction
+        // entirely.
 
         // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
         let wall_mesh = match self.process_element(element, decoder) {
