@@ -35,19 +35,36 @@ export function ClerkDesktopEntitlementSync() {
     if (!isLoaded) return;
 
     if (!isSignedIn) {
-      const next = {
-        ...getDefaultDesktopEntitlement(),
-        status: 'signed_out' as const,
-        source: 'cached' as const,
-      };
       const state = useViewerStore.getState();
+      const next = (
+        state.desktopEntitlement.tier === 'pro'
+        && state.desktopEntitlement.graceUntil
+        && state.desktopEntitlement.graceUntil > Date.now()
+      )
+        ? {
+            ...state.desktopEntitlement,
+            status: 'grace_offline' as const,
+            source: 'cached' as const,
+          }
+        : {
+            ...getDefaultDesktopEntitlement(),
+            status: 'signed_out' as const,
+            source: 'cached' as const,
+          };
       if (!entitlementsEqual(state.desktopEntitlement, next)) {
         setDesktopEntitlement(next);
       }
-      switchChatUserContext(null, false, {
-        clearPersistedCurrent: state.chatStorageUserId !== null,
-        restoreMessages: false,
-      });
+      if (next.status === 'grace_offline') {
+        switchChatUserContext(next.userId, false, {
+          clearPersistedCurrent: false,
+          restoreMessages: true,
+        });
+      } else {
+        switchChatUserContext(null, false, {
+          clearPersistedCurrent: state.chatStorageUserId !== null,
+          restoreMessages: false,
+        });
+      }
       setChatAuthToken(null);
       return;
     }

@@ -119,6 +119,9 @@ export function SettingsPage() {
                 <div>
                   <div className="font-medium capitalize">{planTier} plan</div>
                   <p className="text-sm text-muted-foreground">{planSummary}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Desktop caches the latest validated plan locally so Pro grace can survive temporary auth or network loss.
+                  </p>
                 </div>
                 {isDesktopBillingEnforced() && !hasDesktopPro(desktopEntitlement) && (
                   <Button onClick={() => navigateToPath(buildDesktopUpgradeUrl('/settings'))}>
