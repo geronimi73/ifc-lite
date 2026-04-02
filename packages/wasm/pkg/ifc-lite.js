@@ -1667,18 +1667,6 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
-     * Fast scan that only returns metadata-relevant entity refs.
-     * This drastically reduces transfer size for huge-file metadata hydration.
-     * @param {Uint8Array} data
-     * @returns {any}
-     */
-    scanRelevantEntitiesFastBytes(data) {
-        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.ifcapi_scanRelevantEntitiesFastBytes(this.__wbg_ptr, ptr0, len0);
-        return takeObject(ret);
-    }
-    /**
      * Parse IFC file (traditional - waits for completion)
      *
      * Example:
@@ -3173,8 +3161,8 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+    imports.wbg.__wbindgen_cast_8410bcb836a2825d = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 145, function: Function { arguments: [Externref], shim_idx: 146, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
         const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1130, __wasm_bindgen_func_elem_1131);
         return addHeapObject(ret);
     };
