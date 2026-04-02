@@ -75,7 +75,11 @@ function computeFastFingerprint(buffer: ArrayBuffer): string {
 }
 
 function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  if (bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+  if (
+    bytes.buffer instanceof ArrayBuffer &&
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength
+  ) {
     return bytes.buffer;
   }
   return bytes.slice().buffer;
@@ -608,8 +612,14 @@ export function useIfcLoader() {
         return;
       }
 
-      // Desktop fast path: keep huge IFC files out of browser memory and Tauri IPC.
-      if (isNativeFileHandle(file) && fileName.toLowerCase().endsWith('.ifc')) {
+      // Desktop native streaming path is reserved for truly large IFC files.
+      // Mid-size files are more stable on the shared WASM/web loader and still
+      // provide full viewer parity without the native streaming complexity.
+      if (
+        isNativeFileHandle(file)
+        && fileName.toLowerCase().endsWith('.ifc')
+        && file.size >= HUGE_NATIVE_FILE_THRESHOLD
+      ) {
         const harnessRequest = getActiveHarnessRequest();
         const nativeCacheKey = computeNativeCacheKey(file);
         const shouldUseNativeCache = file.size >= CACHE_SIZE_THRESHOLD;
@@ -626,7 +636,8 @@ export function useIfcLoader() {
         setProgress({ phase: 'Starting native geometry streaming', percent: 10 });
 
         const geometryProcessor = new GeometryProcessor({
-          quality: GeometryQuality.Balanced
+          quality: GeometryQuality.Balanced,
+          preferNative: true,
         });
 
         let estimatedTotal = 0;
@@ -1510,13 +1521,11 @@ export function useIfcLoader() {
         return;
       }
 
-      if (isNativeFileHandle(file)) {
-        throw new Error(`Native path loading currently supports .ifc files only: ${fileName}`);
-      }
-
       // Read file from disk
       const fileReadStart = performance.now();
-      const buffer = await file.arrayBuffer();
+      const buffer = isNativeFileHandle(file)
+        ? toExactArrayBuffer(await readNativeFile(file.path))
+        : await file.arrayBuffer();
       const fileReadMs = performance.now() - fileReadStart;
       console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadMs.toFixed(0)}ms`);
 
@@ -1628,7 +1637,8 @@ export function useIfcLoader() {
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
-        quality: GeometryQuality.Balanced
+        quality: GeometryQuality.Balanced,
+        preferNative: !(isNativeFileHandle(file) && file.size < HUGE_NATIVE_FILE_THRESHOLD),
       });
       await geometryProcessor.init();
 

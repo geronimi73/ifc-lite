@@ -29,8 +29,20 @@ const listeners = new Set<() => void>();
 const extensions = new Map<string, AnalysisExtensionDefinition>();
 
 let activeId: string | null = null;
+let snapshot: AnalysisExtensionsSnapshot = {
+  activeId,
+  extensions: [],
+};
+
+function rebuildSnapshot(): void {
+  snapshot = {
+    activeId,
+    extensions: Array.from(extensions.values()),
+  };
+}
 
 function emit(): void {
+  rebuildSnapshot();
   listeners.forEach((listener) => listener());
 }
 
@@ -54,10 +66,7 @@ export function subscribeAnalysisExtensions(listener: () => void): () => void {
 }
 
 export function getAnalysisExtensionsSnapshot(): AnalysisExtensionsSnapshot {
-  return {
-    activeId,
-    extensions: Array.from(extensions.values()),
-  };
+  return snapshot;
 }
 
 export function getAnalysisExtensionById(id: string | null | undefined): AnalysisExtensionDefinition | null {

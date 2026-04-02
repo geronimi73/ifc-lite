@@ -65,6 +65,7 @@ import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
 
 export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
+  preferNative?: boolean; // Default: true in Tauri
 }
 
 /**
@@ -150,7 +151,7 @@ export class GeometryProcessor {
   constructor(options: GeometryProcessorOptions = {}) {
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
-    this.isNative = isTauri();
+    this.isNative = options.preferNative !== false && isTauri();
     // Note: options accepted for API compatibility
     void options.quality;
 
