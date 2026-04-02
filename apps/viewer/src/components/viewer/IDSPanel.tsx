@@ -65,6 +65,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useIDS } from '@/hooks/useIDS';
+import { openGenericFileDialog } from '@/services/file-dialog';
 import type {
   IDSSpecificationResult,
   IDSEntityResult,
@@ -485,6 +486,21 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     e.target.value = '';
   }, [loadIDSFile]);
 
+  const handleLoadIdsClick = useCallback(async () => {
+    const file = await openGenericFileDialog({
+      title: 'Open IDS File',
+      filters: [
+        { name: 'IDS Files', extensions: ['ids', 'xml'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (file) {
+      await loadIDSFile(file);
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [loadIDSFile]);
+
   // Handle entity click
   const handleEntityClick = useCallback((modelId: string, expressId: number) => {
     selectEntity(modelId, expressId);
@@ -527,7 +543,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
           className="hidden"
           onChange={handleFileSelect}
         />
-        <Button onClick={() => fileInputRef.current?.click()}>
+        <Button onClick={() => { void handleLoadIdsClick(); }}>
           <Upload className="h-4 w-4 mr-2" />
           Load IDS File
         </Button>
@@ -707,7 +723,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
                     variant="ghost"
                     size="sm"
                     className="h-7 w-7 p-0"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => { void handleLoadIdsClick(); }}
                   >
                     <Upload className="h-3 w-3" />
                   </Button>

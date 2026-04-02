@@ -11,6 +11,11 @@ export interface NativeFileHandle {
   modifiedMs?: number | null;
 }
 
+export interface GenericFileDialogOptions {
+  title?: string;
+  filters?: Array<{ name: string; extensions: string[] }>;
+}
+
 async function loadInvokeFromTauriModule(): Promise<InvokeFn | null> {
   try {
     const core = await import('@tauri-apps/api/core');
@@ -110,5 +115,33 @@ export async function readNativeFile(path: string): Promise<Uint8Array> {
     console.warn('[FileDialog] Falling back to plugin-fs read for native file:', error);
     const fs = await import('@tauri-apps/plugin-fs');
     return fs.readFile(path);
+  }
+}
+
+export async function openGenericFileDialog(options: GenericFileDialogOptions = {}): Promise<File | null> {
+  try {
+    const dialog = await loadDialogModule();
+    if (!dialog) {
+      return null;
+    }
+
+    const selected = await dialog.open({
+      multiple: false,
+      directory: false,
+      title: options.title,
+      filters: options.filters,
+    });
+    if (!selected || Array.isArray(selected)) {
+      return null;
+    }
+
+    const normalizedPath = selected.toString();
+    const bytes = await readNativeFile(normalizedPath);
+    const pathSegments = normalizedPath.split(/[\\/]/);
+    const name = pathSegments[pathSegments.length - 1] || 'document';
+    return new File([bytes], name, { type: 'application/octet-stream' });
+  } catch (error) {
+    console.warn('[FileDialog] Failed to open generic native file dialog:', error);
+    return null;
   }
 }

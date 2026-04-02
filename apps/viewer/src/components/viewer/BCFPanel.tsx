@@ -38,6 +38,7 @@ import { useBCF } from '@/hooks/useBCF';
 import { BCFTopicList } from './bcf/BCFTopicList';
 import { BCFTopicDetail } from './bcf/BCFTopicDetail';
 import { BCFCreateTopicForm } from './bcf/BCFCreateTopicForm';
+import { openGenericFileDialog } from '@/services/file-dialog';
 
 // ============================================================================
 // Main BCF Panel Component
@@ -132,8 +133,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   }, [bcfProject, setBcfProject, getDefaultProjectName]);
 
   // Import BCF file
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImportFile = useCallback(async (file: File | null | undefined) => {
     if (!file) return;
 
     try {
@@ -151,6 +151,25 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
       }
     }
   }, [setBcfProject, setBcfLoading, setBcfError]);
+
+  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await handleImportFile(e.target.files?.[0]);
+  }, [handleImportFile]);
+
+  const handleImportClick = useCallback(async () => {
+    const file = await openGenericFileDialog({
+      title: 'Import BCF File',
+      filters: [
+        { name: 'BCF Files', extensions: ['bcfzip', 'bcf'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (file) {
+      await handleImportFile(file);
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [handleImportFile]);
 
   // Export BCF file
   const handleExport = useCallback(async () => {
@@ -290,7 +309,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { void handleImportClick(); }}
             title="Import BCF"
           >
             <Upload className="h-4 w-4" />
