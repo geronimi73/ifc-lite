@@ -724,11 +724,14 @@ export class ColumnarParser {
             ...relationshipRefs,
             ...propertyRelRefs,
             ...propertyContainerRefs,
+            ...(deferPropertyAtomIndex ? [] : propertyAtomRefs),
             ...associationRelRefs,
             ...typeObjectRefs,
             ...otherRelevantRefs,
         ];
-        emitDiagnostic(`index input: relevantRefs=${indexedRefs.length} deferredPropertyAtoms=${propertyAtomRefs.length} skippedRefs=${totalEntities - indexedRefs.length - propertyAtomRefs.length}`);
+        emitDiagnostic(
+            `index input: relevantRefs=${indexedRefs.length} deferredPropertyAtoms=${deferPropertyAtomIndex ? propertyAtomRefs.length : 0} skippedRefs=${totalEntities - indexedRefs.length - (deferPropertyAtomIndex ? propertyAtomRefs.length : 0)}`
+        );
 
         // Build compact entity index from only the refs that survive lite parsing.
         // This avoids spending huge-file startup time indexing millions of skipped

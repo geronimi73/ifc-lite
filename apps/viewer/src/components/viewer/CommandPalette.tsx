@@ -70,6 +70,7 @@ import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
 import { getRecentFiles, formatFileSize, getCachedFile } from '@/lib/recent-files';
 import type { RecentFileEntry } from '@/lib/recent-files';
+import { closeActiveAnalysisExtension } from '@/services/analysis-extensions';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -189,6 +190,8 @@ function activateRightPanel(panel: 'bcf' | 'ids' | 'lens') {
     panel === 'ids' ? s.idsPanelVisible :
     s.lensPanelVisible;
 
+  closeActiveAnalysisExtension();
+
   // Close all content panels
   s.setBcfPanelVisible(false);
   s.setIdsPanelVisible(false);
@@ -210,6 +213,8 @@ function activateRightPanel(panel: 'bcf' | 'ids' | 'lens') {
 function activateBottomPanel(panel: 'script' | 'list') {
   const s = useViewerStore.getState();
   const isActive = panel === 'script' ? s.scriptPanelVisible : s.listPanelVisible;
+
+  closeActiveAnalysisExtension();
 
   // Close all bottom panels
   s.setScriptPanelVisible(false);

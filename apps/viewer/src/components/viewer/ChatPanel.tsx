@@ -238,6 +238,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
   const [lastFinishReason, setLastFinishReason] = useState<string | null>(null);
+  const openUpgradePage = useCallback(() => {
+    navigateToPath(buildDesktopUpgradeUrl());
+  }, []);
+  const promptAiUpgrade = useCallback(() => {
+    setChatError('AI assistant is available with Desktop Pro.');
+    toast.info('AI assistant is available with Desktop Pro');
+    openUpgradePage();
+  }, [openUpgradePage, setChatError]);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1069,15 +1077,6 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const canContinue = Boolean(
     !isActive && (streamingContent.trim().length > 0 || lastFinishReason === 'length'),
   );
-  const openUpgradePage = useCallback(() => {
-    navigateToPath(buildDesktopUpgradeUrl());
-  }, []);
-  const promptAiUpgrade = useCallback(() => {
-    setChatError('AI assistant is available with Desktop Pro.');
-    toast.info('AI assistant is available with Desktop Pro');
-    openUpgradePage();
-  }, [openUpgradePage, setChatError]);
-
   return (
     <div
       className="h-full flex flex-col bg-background relative"
