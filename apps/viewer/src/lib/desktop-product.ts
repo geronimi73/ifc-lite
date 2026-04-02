@@ -2,8 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { isClerkConfigured } from './llm/clerk-auth';
-
 export type DesktopPlanTier = 'free' | 'pro';
 export type DesktopEntitlementStatus = 'anonymous' | 'signed_out' | 'active' | 'trial' | 'expired' | 'grace_offline';
 export type DesktopEntitlementSource = 'anonymous' | 'clerk_claims' | 'cached';
@@ -42,39 +40,39 @@ interface DesktopFeatureDefinition {
 
 const DESKTOP_FEATURES: Record<DesktopFeature, DesktopFeatureDefinition> = {
   viewer_basic: {
-    label: 'Desktop viewer',
-    description: 'Open IFC files, inspect hierarchy and properties, navigate, section, and measure offline.',
+    label: 'Viewer features',
+    description: 'Core model viewing and inspection capabilities.',
     free: true,
   },
   workspace_restore: {
     label: 'Workspace restore',
-    description: 'Restore workspace layout, camera position, and saved desktop context across launches.',
-    free: false,
+    description: 'Host-provided workspace persistence features.',
+    free: true,
   },
   exports: {
     label: 'Exports',
-    description: 'IFC export, GLB, CSV, JSON, screenshots, and other native save flows.',
-    free: false,
+    description: 'Host-provided export integrations.',
+    free: true,
   },
   ids_validation: {
     label: 'IDS validation',
-    description: 'Load IDS files, validate models, inspect results, and export validation reports.',
-    free: false,
+    description: 'Host-provided IDS workflows.',
+    free: true,
   },
   bcf_issue_management: {
     label: 'BCF issue management',
-    description: 'Create, import, edit, and export BCF topics with viewpoints and screenshots.',
-    free: false,
+    description: 'Host-provided BCF workflows.',
+    free: true,
   },
   ai_assistant: {
-    label: 'AI assistant',
-    description: 'Script repair and model generation with the same monthly LLM limits and routing as web.',
-    free: false,
+    label: 'Host AI assistant',
+    description: 'Optional host-provided AI integrations.',
+    free: true,
   },
 };
 
 export function isDesktopBillingEnforced(): boolean {
-  return isClerkConfigured();
+  return false;
 }
 
 export function getDesktopPlanTier(entitlementOrHasPro: DesktopEntitlement | boolean): DesktopPlanTier {
@@ -88,13 +86,7 @@ export function hasDesktopPro(entitlementOrHasPro: DesktopEntitlement | boolean)
 }
 
 export function hasDesktopFeatureAccess(entitlementOrHasPro: DesktopEntitlement | boolean, feature: DesktopFeature): boolean {
-  if (!isDesktopBillingEnforced()) {
-    return true;
-  }
-  if (hasDesktopPro(entitlementOrHasPro)) {
-    return true;
-  }
-  return DESKTOP_FEATURES[feature].free;
+  return hasDesktopPro(entitlementOrHasPro) || DESKTOP_FEATURES[feature].free;
 }
 
 export function getDesktopFeatureCatalog(entitlementOrHasPro: DesktopEntitlement | boolean) {
@@ -116,8 +108,8 @@ export function buildDesktopUpgradeUrl(returnTo?: string): string {
 export function getDefaultDesktopEntitlement(): DesktopEntitlement {
   return {
     tier: 'free',
-    status: isDesktopBillingEnforced() ? 'signed_out' : 'anonymous',
-    source: isDesktopBillingEnforced() ? 'cached' : 'anonymous',
+    status: 'anonymous',
+    source: 'anonymous',
     userId: null,
     validatedAt: null,
     graceUntil: null,
@@ -126,27 +118,7 @@ export function getDefaultDesktopEntitlement(): DesktopEntitlement {
 }
 
 export function getDesktopPlanSummary(entitlementOrHasPro: DesktopEntitlement | boolean, usage: DesktopUsageSummary | null): string {
-  if (!isDesktopBillingEnforced()) {
-    return 'Auth and billing are not configured in this build.';
-  }
-  const entitlement = typeof entitlementOrHasPro === 'boolean'
-    ? { ...getDefaultDesktopEntitlement(), tier: entitlementOrHasPro ? 'pro' : 'free' }
-    : entitlementOrHasPro;
-  if (entitlement.status === 'trial' && entitlement.trialEndsAt) {
-    return `Trial active until ${new Date(entitlement.trialEndsAt).toLocaleDateString()}. Pro features are unlocked during the trial.`;
-  }
-  if (entitlement.status === 'grace_offline' && entitlement.graceUntil) {
-    return `Offline grace active until ${new Date(entitlement.graceUntil).toLocaleDateString()}.`;
-  }
-  if (hasDesktopPro(entitlement)) {
-    if (usage) {
-      const unit = usage.type === 'credits' ? 'credits' : 'requests';
-      return `Pro plan active. AI usage: ${usage.used}/${usage.limit} ${unit}.`;
-    }
-    return 'Pro plan active. AI assistant limits follow the same monthly quota system as web.';
-  }
-  if (entitlement.status === 'expired') {
-    return 'Desktop Pro has expired. Core viewing remains available, while advanced features are locked.';
-  }
-  return 'Free plan active. The desktop viewer stays available, while Pro unlocks advanced app-wide features.';
+  void entitlementOrHasPro;
+  void usage;
+  return 'Desktop entitlements are host-defined and disabled in the open-source web viewer build.';
 }

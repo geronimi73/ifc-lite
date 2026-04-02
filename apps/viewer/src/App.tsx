@@ -7,48 +7,13 @@
  */
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
-import { SettingsPage } from './components/viewer/SettingsPage';
-import { UpgradePage } from './components/viewer/UpgradePage';
 import { BimProvider } from './sdk/BimProvider';
 import { Toaster } from './components/ui/toast';
-import { ClerkDesktopEntitlementSync } from './lib/desktop/ClerkDesktopEntitlementSync';
-import { isClerkConfigured } from './lib/llm/clerk-auth';
-import { useEffect, useState } from 'react';
-import { logToDesktopTerminal } from './services/desktop-logger';
 
 export function App() {
-  const clerkEnabled = isClerkConfigured();
-  const [pathname, setPathname] = useState(() => window.location.pathname);
-
-  useEffect(() => {
-    const onRouteChange = () => setPathname(window.location.pathname);
-    const onError = (event: ErrorEvent) => {
-      void logToDesktopTerminal(
-        'error',
-        `[App/error] message=${event.message} source=${event.filename}:${event.lineno}:${event.colno}`
-      );
-    };
-    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
-      const reason = event.reason instanceof Error ? event.reason.stack ?? event.reason.message : String(event.reason);
-      void logToDesktopTerminal('error', `[App/unhandledrejection] ${reason}`);
-    };
-    window.addEventListener('popstate', onRouteChange);
-    window.addEventListener('error', onError);
-    window.addEventListener('unhandledrejection', onUnhandledRejection);
-    return () => {
-      window.removeEventListener('popstate', onRouteChange);
-      window.removeEventListener('error', onError);
-      window.removeEventListener('unhandledrejection', onUnhandledRejection);
-    };
-  }, []);
-
-  const isUpgradeRoute = pathname === '/upgrade';
-  const isSettingsRoute = pathname === '/settings';
-
   return (
     <BimProvider>
-      {clerkEnabled && <ClerkDesktopEntitlementSync />}
-      {isUpgradeRoute ? <UpgradePage /> : isSettingsRoute ? <SettingsPage /> : <ViewerLayout />}
+      <ViewerLayout />
       <Toaster />
     </BimProvider>
   );
