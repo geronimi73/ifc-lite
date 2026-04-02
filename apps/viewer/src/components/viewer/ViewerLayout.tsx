@@ -22,6 +22,7 @@ import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
 import { ScriptPanel } from './ScriptPanel';
 import { CommandPalette } from './CommandPalette';
+import { DesktopEntitlementBanner } from './DesktopEntitlementBanner';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -183,6 +184,7 @@ export function ViewerLayout() {
 
         {/* Main Toolbar */}
         <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />
+        <DesktopEntitlementBanner />
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (

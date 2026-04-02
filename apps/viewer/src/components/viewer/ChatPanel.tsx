@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
@@ -50,6 +51,7 @@ import type { ChatMessage, ChatRepairRequest, FileAttachment } from '@/lib/llm/t
 import { canUsePlainCodeBlockFallback, type ScriptMutationIntent } from '@/lib/llm/script-preservation';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
+import { buildDesktopUpgradeUrl, hasDesktopFeatureAccess } from '@/lib/desktop-product';
 import { navigateToPath } from '@/services/app-navigation';
 import { getModelById } from '@/lib/llm/models';
 import { useSandbox } from '@/hooks/useSandbox';
@@ -213,7 +215,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const hasPro = useViewerStore((s) => s.chatHasPro);
   const usage = useViewerStore((s) => s.chatUsage);
   const setChatUsage = useViewerStore((s) => s.setChatUsage);
+  const desktopEntitlement = useViewerStore((s) => s.desktopEntitlement);
   const { execute } = useSandbox();
+  const canUseAiAssistant = hasDesktopFeatureAccess(desktopEntitlement, 'ai_assistant');
   const displayUsage: UsageInfo | null = usage ?? (hasPro
     ? {
       type: 'credits',
@@ -386,6 +390,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   // ── Core send logic ──
   const doSend = useCallback(async (text: string, options?: ChatSendOptions) => {
     if (!text.trim() || status === 'streaming' || status === 'sending') return;
+    if (!canUseAiAssistant) {
+      setChatError('AI assistant is available with Desktop Pro.');
+      return;
+    }
 
     const continuationBase = options?.continuationBase;
     const responseIntent = options?.intent ?? 'create';
@@ -781,15 +789,19 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       }
     }
   }, [
-    status, activeModel, attachments, authToken,
+    canUseAiAssistant, status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments, setChatUsage, resizeInput,
     buildRepairPromptFromLiveState, triggerAutoRepair, execute,
   ]);
 
   const handleSend = useCallback(() => {
+    if (!canUseAiAssistant) {
+      promptAiUpgrade();
+      return;
+    }
     doSend(inputText);
-  }, [inputText, doSend]);
+  }, [canUseAiAssistant, doSend, inputText, promptAiUpgrade]);
 
   // Allow other panels (e.g. ScriptPanel errors) to trigger a chat repair turn.
   useEffect(() => {
@@ -818,6 +830,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [pendingRepairRequest, status, consumePendingRepairRequest, buildRepairPromptFromLiveState, doSend]);
 
   const handleContinue = useCallback(() => {
+    if (!canUseAiAssistant) {
+      promptAiUpgrade();
+      return;
+    }
     const state = useViewerStore.getState();
     const partial = state.chatStreamingContent.trim();
     const lastAssistant = [...state.chatMessages].reverse().find((m) => m.role === 'assistant');
@@ -830,7 +846,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     }
     setChatError(null);
     doSend(CONTINUE_PROMPT, { continuationBase });
-  }, [doSend, finalizeAssistant, setChatError]);
+  }, [canUseAiAssistant, doSend, finalizeAssistant, promptAiUpgrade, setChatError]);
 
   const handleStop = useCallback(() => {
     const controller = useViewerStore.getState().chatAbortController;
@@ -855,6 +871,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── Error feedback (Fix this) ──
   const handleFixError = useCallback((code: string, errorMsg: string) => {
+    if (!canUseAiAssistant) {
+      promptAiUpgrade();
+      return;
+    }
     const diagnostics = useViewerStore.getState().scriptLastDiagnostics;
     const liveCode = useViewerStore.getState().scriptEditorContent;
     const staleCode = code.trim() !== liveCode.trim() ? code : undefined;
@@ -869,7 +889,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       requestedRepairScope: getPrimaryRootCause(diagnostics)?.repairScope,
       rootCauseKey: getPrimaryRootCause(diagnostics)?.rootCauseKey,
     });
-  }, [buildRepairPromptFromLiveState, doSend]);
+  }, [buildRepairPromptFromLiveState, canUseAiAssistant, doSend, promptAiUpgrade]);
 
   // ── Clickable example prompts ──
   const handleExampleClick = useCallback((prompt: string) => {
@@ -899,6 +919,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── File upload (button + drag-drop + paste) ──
   const processFiles = useCallback(async (files: FileList | File[]) => {
+    if (!canUseAiAssistant) {
+      promptAiUpgrade();
+      return;
+    }
     const model = getModelById(activeModel);
     const supportsImages = model?.supportsImages ?? false;
     const supportsFileAttachments = model?.supportsFileAttachments ?? true;
@@ -966,7 +990,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         setChatError(`Could not read ${file.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-  }, [activeModel, addAttachment, attachments.length, setChatError]);
+  }, [activeModel, addAttachment, attachments.length, canUseAiAssistant, promptAiUpgrade, setChatError]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -1046,10 +1070,13 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     !isActive && (streamingContent.trim().length > 0 || lastFinishReason === 'length'),
   );
   const openUpgradePage = useCallback(() => {
-    const currentPath = `${window.location.pathname}${window.location.search}`;
-    const target = `/upgrade?returnTo=${encodeURIComponent(currentPath)}`;
-    navigateToPath(target);
+    navigateToPath(buildDesktopUpgradeUrl());
   }, []);
+  const promptAiUpgrade = useCallback(() => {
+    setChatError('AI assistant is available with Desktop Pro.');
+    toast.info('AI assistant is available with Desktop Pro');
+    openUpgradePage();
+  }, [openUpgradePage, setChatError]);
 
   return (
     <div
@@ -1133,6 +1160,15 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           </Button>
         )}
       </div>
+
+      {!canUseAiAssistant && (
+        <div className="border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground flex items-center justify-between gap-3">
+          <span>AI assistant is available with Desktop Pro. Core viewing and scripting stay available without it.</span>
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={openUpgradePage}>
+            Upgrade
+          </Button>
+        </div>
+      )}
 
       {/* Clear confirmation */}
       {showClearConfirm && (
@@ -1308,14 +1344,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 variant="ghost"
                 size="icon-xs"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={!canAttachInput}
+                disabled={!canAttachInput || !canUseAiAssistant}
                 className="shrink-0 mb-0.5"
               >
                 <Paperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {canAttachInput
+              {!canUseAiAssistant
+                ? 'Desktop Pro required for AI assistant'
+                : canAttachInput
                 ? 'Attach file or image (paste, drag & drop)'
                 : 'Selected model does not support attachments'}
             </TooltipContent>
@@ -1330,10 +1368,11 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Ask anything..."
+            placeholder={canUseAiAssistant ? 'Ask anything...' : 'Desktop Pro required for AI assistant'}
             rows={1}
             className="flex-1 resize-none rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground px-3 py-1.5 text-sm min-h-[32px] max-h-[120px] focus:outline-none focus:ring-1 focus:ring-ring"
             style={{ height: 'auto', overflow: 'hidden' }}
+            disabled={!canUseAiAssistant}
           />
 
           {isActive ? (
@@ -1357,7 +1396,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                   variant="default"
                   size="icon-xs"
                   onClick={handleSend}
-                  disabled={!inputText.trim()}
+                  disabled={!inputText.trim() || !canUseAiAssistant}
                   className="shrink-0 mb-0.5"
                 >
                   <Send className="h-3.5 w-3.5" />
