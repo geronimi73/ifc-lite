@@ -70,10 +70,14 @@ import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 import { getStartupHarnessRequest, setActiveHarnessRequest, tryClaimStartupHarnessRequest } from '@/services/desktop-harness';
 import { logToDesktopTerminal } from '@/services/desktop-logger';
-import { openIfcFileDialog } from '@/services/file-dialog';
+import { openIfcFileDialog, type NativeFileHandle } from '@/services/file-dialog';
 
 type Tool = 'select' | 'walk' | 'measure' | 'section';
 type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens';
+
+function isNativeFileHandle(file: File | NativeFileHandle): file is NativeFileHandle {
+  return typeof (file as NativeFileHandle).path === 'string';
+}
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
 // This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
@@ -170,8 +174,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   // Listen for programmatic file-load requests (from command palette recent files)
   useEffect(() => {
     const handler = (e: Event) => {
-      const file = (e as CustomEvent<File>).detail;
+      const file = (e as CustomEvent<File | NativeFileHandle>).detail;
       if (file) {
+        recordRecentFiles([isNativeFileHandle(file)
+          ? { name: file.name, size: file.size, path: file.path, modifiedMs: file.modifiedMs ?? null }
+          : { name: file.name, size: file.size }]);
         void loadFile(file);
       }
     };
@@ -646,7 +653,12 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               const file = await openIfcFileDialog();
               if (file) {
                 void logToDesktopTerminal('info', `[MainToolbar] Native dialog selected ${file.path}`);
-                recordRecentFiles([{ name: file.name, size: file.size }]);
+                recordRecentFiles([{
+                  name: file.name,
+                  size: file.size,
+                  path: file.path,
+                  modifiedMs: file.modifiedMs ?? null,
+                }]);
                 void loadFile(file);
                 return;
               }
