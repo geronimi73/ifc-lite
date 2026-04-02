@@ -15,7 +15,7 @@
  * - Multi-language support (EN/DE/FR)
  */
 
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   X,
   Upload,
@@ -74,6 +74,7 @@ import type {
 import { cn } from '@/lib/utils';
 import { IDSExportDialog } from './IDSExportDialog';
 import type { IDSBCFExportSettings, IDSExportProgress } from './IDSExportDialog';
+import { claimNextDesktopPanelAction, subscribeDesktopPanelActions } from '@/services/desktop-panel-actions';
 
 // ============================================================================
 // Types
@@ -486,7 +487,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     e.target.value = '';
   }, [loadIDSFile]);
 
-  const handleLoadIdsClick = useCallback(async () => {
+  const loadIdsFromDialog = useCallback(async (): Promise<boolean> => {
     const file = await openGenericFileDialog({
       title: 'Open IDS File',
       filters: [
@@ -496,10 +497,42 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     });
     if (file) {
       await loadIDSFile(file);
+      return true;
+    }
+    return false;
+  }, [loadIDSFile]);
+
+  const handleLoadIdsClick = useCallback(async () => {
+    const loaded = await loadIdsFromDialog();
+    if (loaded) {
       return;
     }
     fileInputRef.current?.click();
-  }, [loadIDSFile]);
+  }, [loadIdsFromDialog]);
+
+  const handleDesktopRunValidation = useCallback(async () => {
+    if (!document) {
+      const loaded = await loadIdsFromDialog();
+      if (!loaded) {
+        return;
+      }
+    }
+    await runValidation();
+  }, [document, loadIdsFromDialog, runValidation]);
+
+  useEffect(() => {
+    const drainDesktopActions = () => {
+      if (claimNextDesktopPanelAction('ids-open')) {
+        void loadIdsFromDialog();
+      }
+      if (claimNextDesktopPanelAction('ids-run-validation')) {
+        void handleDesktopRunValidation();
+      }
+    };
+
+    drainDesktopActions();
+    return subscribeDesktopPanelActions(drainDesktopActions);
+  }, [handleDesktopRunValidation, loadIdsFromDialog]);
 
   // Handle entity click
   const handleEntityClick = useCallback((modelId: string, expressId: number) => {

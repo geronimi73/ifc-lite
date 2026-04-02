@@ -13,7 +13,7 @@
  * - Import/export BCF files
  */
 
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   X,
   MessageSquare,
@@ -39,6 +39,7 @@ import { BCFTopicList } from './bcf/BCFTopicList';
 import { BCFTopicDetail } from './bcf/BCFTopicDetail';
 import { BCFCreateTopicForm } from './bcf/BCFCreateTopicForm';
 import { openGenericFileDialog } from '@/services/file-dialog';
+import { claimNextDesktopPanelAction, subscribeDesktopPanelActions } from '@/services/desktop-panel-actions';
 
 // ============================================================================
 // Main BCF Panel Component
@@ -156,7 +157,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     await handleImportFile(e.target.files?.[0]);
   }, [handleImportFile]);
 
-  const handleImportClick = useCallback(async () => {
+  const importFromDialog = useCallback(async (): Promise<boolean> => {
     const file = await openGenericFileDialog({
       title: 'Import BCF File',
       filters: [
@@ -166,10 +167,18 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     });
     if (file) {
       await handleImportFile(file);
+      return true;
+    }
+    return false;
+  }, [handleImportFile]);
+
+  const handleImportClick = useCallback(async () => {
+    const imported = await importFromDialog();
+    if (imported) {
       return;
     }
     fileInputRef.current?.click();
-  }, [handleImportFile]);
+  }, [importFromDialog]);
 
   // Export BCF file
   const handleExport = useCallback(async () => {
@@ -283,6 +292,20 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     }
     setShowAuthorDialog(false);
   }, [tempAuthor, setBcfAuthor]);
+
+  useEffect(() => {
+    const drainDesktopActions = () => {
+      if (claimNextDesktopPanelAction('bcf-import')) {
+        void importFromDialog();
+      }
+      if (claimNextDesktopPanelAction('bcf-export')) {
+        void handleExport();
+      }
+    };
+
+    drainDesktopActions();
+    return subscribeDesktopPanelActions(drainDesktopActions);
+  }, [handleExport, importFromDialog]);
 
   return (
     <div className="flex flex-col h-full bg-background">
