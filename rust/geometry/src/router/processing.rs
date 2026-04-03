@@ -6,7 +6,9 @@
 
 use super::GeometryRouter;
 use crate::{Error, Mesh, Result, SubMeshCollection};
-use ifc_lite_core::{has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType};
+use ifc_lite_core::{
+    has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType,
+};
 use nalgebra::Matrix4;
 use rustc_hash::FxHashSet;
 use std::sync::Arc;
