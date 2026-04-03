@@ -106,7 +106,14 @@ export const mainShaderSource = `
             }
           }
 
-          let N = normalize(input.normal);
+          // When vertex normals are zero (desktop no-normals fast path),
+          // compute flat normals from screen-space derivatives of world position.
+          var N = input.normal;
+          if (dot(N, N) < 0.0001) {
+            N = normalize(cross(dpdx(input.worldPos), dpdy(input.worldPos)));
+          } else {
+            N = normalize(N);
+          }
 
           // Enhanced lighting with multiple sources
           let sunLight = normalize(vec3<f32>(0.5, 1.0, 0.3));  // Main directional light

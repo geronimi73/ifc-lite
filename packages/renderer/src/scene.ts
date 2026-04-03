@@ -1201,6 +1201,7 @@ export class Scene {
         }
         entityId = entityId & MAX_ENCODED_ENTITY_ID;
       }
+      const hasNormals = normals.length > 0;
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
         const px = positions[srcIdx];
@@ -1209,9 +1210,9 @@ export class Scene {
         vertexData[outIdx++] = px;
         vertexData[outIdx++] = py;
         vertexData[outIdx++] = pz;
-        vertexData[outIdx++] = normals[srcIdx];
-        vertexData[outIdx++] = normals[srcIdx + 1];
-        vertexData[outIdx++] = normals[srcIdx + 2];
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx] : 0;
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx + 1] : 0;
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx + 2] : 0;
         vertexDataU32[outIdx++] = perVertexEntityIds ? (perVertexEntityIds[i] >>> 0) : entityId;
 
         // Update bounds
