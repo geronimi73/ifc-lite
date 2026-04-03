@@ -504,7 +504,30 @@ export function HierarchyPanel() {
     );
   }
 
+  const singleModel = models.size === 1 ? Array.from(models.values())[0] : null;
+  if (!ifcDataStore && singleModel && !nativeLazyModel) {
+    const metadataState = singleModel.metadataLoadState;
+    const message = metadataState === 'error'
+      ? (singleModel.loadError || 'Native metadata failed to load.')
+      : metadataState === 'bootstrapping'
+        ? 'Native spatial metadata is loading.'
+        : 'Spatial metadata will appear once bootstrap completes.';
+    return (
+      <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+        <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
+          <h2 className="font-bold uppercase tracking-wider text-xs text-zinc-900 dark:text-zinc-100">Hierarchy</h2>
+        </div>
+        <div className="flex-1 flex items-center justify-center p-6 text-center">
+          <div className="max-w-[220px] text-xs text-zinc-500 dark:text-zinc-400">
+            {message}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (nativeLazyModel?.nativeMetadata) {
+    const nativeMetadata = nativeLazyModel.nativeMetadata;
     const nativeSelectedGlobalId =
       selectedEntity?.modelId === nativeLazyModel.id
         ? toGlobalId(nativeLazyModel.id, selectedEntity.expressId)
@@ -518,7 +541,6 @@ export function HierarchyPanel() {
         modelId: nativeLazyModel.id,
         expressId,
       });
-      setSelectedModelId(nativeLazyModel.id);
       setActiveModel(nativeLazyModel.id);
     };
 
@@ -534,7 +556,7 @@ export function HierarchyPanel() {
       });
       if (nativeChildren[expressId]) return;
       try {
-        const children = await getNativeMetadataChildren(nativeLazyModel.nativeMetadata.cacheKey, expressId);
+        const children = await getNativeMetadataChildren(nativeMetadata.cacheKey, expressId);
         setNativeChildren((prev) => ({ ...prev, [expressId]: children }));
       } catch {
         setNativeChildren((prev) => ({ ...prev, [expressId]: [] }));
@@ -607,10 +629,16 @@ export function HierarchyPanel() {
         <div className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
           {searchQuery.trim()
             ? nativeSearchResults.map((result) => renderNativeSummary(result, 0))
-            : nativeLazyModel.nativeMetadata.spatialTree
-              ? renderNativeSummary(nativeLazyModel.nativeMetadata.spatialTree, 0)
+            : nativeMetadata.spatialTree
+              ? renderNativeSummary(nativeMetadata.spatialTree, 0)
               : (
-                <div className="p-4 text-xs text-zinc-500">Native spatial metadata is still loading.</div>
+                <div className="p-4 text-xs text-zinc-500">
+                  {nativeLazyModel.metadataLoadState === 'error'
+                    ? (nativeLazyModel.loadError || 'Native spatial metadata is unavailable for this model.')
+                    : nativeLazyModel.metadataLoadState === 'bootstrapping'
+                      ? 'Native spatial metadata is still loading.'
+                      : 'Native spatial metadata tree is unavailable for this model.'}
+                </div>
               )}
         </div>
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500 text-center bg-zinc-50 dark:bg-black font-mono">

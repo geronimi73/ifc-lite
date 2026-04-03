@@ -7,6 +7,7 @@ import type {
   NativeMetadataEntitySummary,
   NativeMetadataSnapshot,
 } from '@/store/types';
+import type { MetadataBootstrapPayload } from '@ifc-lite/geometry';
 import { getNativeModelSnapshot, setNativeModelSnapshot } from './desktop-cache';
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -32,6 +33,20 @@ function toSchemaVersion(schemaVersion: string): NativeMetadataSnapshot['schemaV
     return schemaVersion;
   }
   return 'IFC2X3';
+}
+
+export function nativeMetadataSnapshotFromBootstrap(
+  path: string,
+  payload: MetadataBootstrapPayload
+): NativeMetadataSnapshot {
+  return {
+    mode: 'desktop-lazy',
+    cacheKey: payload.cacheKey,
+    filePath: path,
+    schemaVersion: toSchemaVersion(payload.schemaVersion),
+    entityCount: payload.entityCount,
+    spatialTree: payload.spatialTree ?? null,
+  };
 }
 
 export async function bootstrapNativeMetadata(path: string, cacheKey: string): Promise<NativeMetadataSnapshot> {

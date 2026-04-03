@@ -104,7 +104,7 @@ export function PropertiesPanel() {
       const m = models.get(selectedEntity.modelId);
       if (m) {
         return {
-          modelQuery: m.ifcDataStore ? new IfcQuery(m.ifcDataStore) : null,
+          modelQuery: m.nativeMetadata ? null : (m.ifcDataStore ? new IfcQuery(m.ifcDataStore) : null),
           model: m,
         };
       }
@@ -144,6 +144,7 @@ export function PropertiesPanel() {
   const [coordCopied, setCoordCopied] = useState<string | null>(null);
   const [coordOpen, setCoordOpen] = useState(false);
   const [nativeDetails, setNativeDetails] = useState<import('@/store/types').NativeMetadataEntityDetails | null>(null);
+  const [nativeDetailsState, setNativeDetailsState] = useState<'idle' | 'loading' | 'error'>('idle');
 
   // Edit mode toggle - allows inline property editing
   const [editMode, setEditMode] = useState(false);
@@ -151,15 +152,23 @@ export function PropertiesPanel() {
   useEffect(() => {
     if (!selectedEntity || !model?.nativeMetadata) {
       setNativeDetails(null);
+      setNativeDetailsState('idle');
       return;
     }
     let cancelled = false;
+    setNativeDetailsState('loading');
     void getNativeEntityDetails(model.nativeMetadata.cacheKey, selectedEntity.expressId)
       .then((details) => {
-        if (!cancelled) setNativeDetails(details);
+        if (!cancelled) {
+          setNativeDetails(details);
+          setNativeDetailsState('idle');
+        }
       })
       .catch(() => {
-        if (!cancelled) setNativeDetails(null);
+        if (!cancelled) {
+          setNativeDetails(null);
+          setNativeDetailsState('error');
+        }
       });
     return () => {
       cancelled = true;
@@ -767,6 +776,114 @@ export function PropertiesPanel() {
     return names;
   }, [attributes]);
 
+  const isNativeLazySelection = Boolean(selectedEntity && model?.nativeMetadata);
+
+  useEffect(() => {
+    if (isNativeLazySelection && editMode) {
+      setEditMode(false);
+    }
+  }, [isNativeLazySelection, editMode]);
+
+  const nativeSpatialInfo = useMemo(() => {
+    if (!nativeDetails?.spatial?.storeyName) return null;
+    return {
+      storeyId: nativeDetails.spatial.storeyId ?? undefined,
+      storeyName: nativeDetails.spatial.storeyName,
+      elevation: nativeDetails.spatial.elevation ?? undefined,
+      height: nativeDetails.spatial.height ?? undefined,
+    };
+  }, [nativeDetails]);
+
+  const nativeOccurrenceProperties = useMemo<PropertySet[]>(() => {
+    if (!nativeDetails) return [];
+    return nativeDetails.properties.map((pset) => ({
+      name: pset.name,
+      properties: pset.properties.map((property) => ({
+        name: property.name,
+        value: property.value,
+        isMutated: false,
+      })),
+      isNewPset: false,
+      source: 'instance' as const,
+    }));
+  }, [nativeDetails]);
+
+  const nativeQuantities = useMemo<QuantitySet[]>(() => {
+    if (!nativeDetails) return [];
+    return nativeDetails.quantities.map((qset) => ({
+      name: qset.name,
+      quantities: qset.quantities.map((quantity) => ({
+        name: quantity.name,
+        value: quantity.value,
+        type: quantity.type ?? 0,
+      })),
+    }));
+  }, [nativeDetails]);
+
+  const renderedEntityType = isNativeLazySelection
+    ? (nativeDetails?.summary.type ?? 'Loading...')
+    : (entityNode?.type ?? 'Unknown');
+  const renderedEntityName = isNativeLazySelection
+    ? (nativeDetails?.summary.name ?? `#${selectedEntity?.expressId ?? ''}`)
+    : entityNode?.name;
+  const renderedEntityGlobalId = isNativeLazySelection
+    ? (nativeDetails?.summary.globalId ?? null)
+    : entityNode?.globalId;
+  const renderedEntityDescription = isNativeLazySelection ? undefined : entityNode?.description;
+  const renderedEntityObjectType = isNativeLazySelection ? undefined : entityNode?.objectType;
+  const renderedSpatialInfo = isNativeLazySelection ? nativeSpatialInfo : spatialInfo;
+  const renderedOccurrenceProperties = isNativeLazySelection ? nativeOccurrenceProperties : occurrenceProperties;
+  const renderedInheritedTypeProperties = isNativeLazySelection ? [] : inheritedTypeProperties;
+  const renderedMergedProperties = isNativeLazySelection
+    ? nativeOccurrenceProperties
+    : mergedProperties;
+  const renderedQuantities = isNativeLazySelection ? nativeQuantities : quantities;
+  const renderedAttributes = isNativeLazySelection ? [] : attributes;
+  const renderedClassifications = isNativeLazySelection ? [] : classifications;
+  const renderedMaterialInfo = isNativeLazySelection ? null : materialInfo;
+  const renderedDocuments = isNativeLazySelection ? [] : documents;
+  const renderedEntityRelationships = isNativeLazySelection ? null : entityRelationships;
+  const renderedGeoref = isNativeLazySelection ? null : georef;
+  const renderedSpatialContainment = isNativeLazySelection ? null : spatialContainment;
+  const renderedTypeProperties = isNativeLazySelection
+    ? (nativeDetails?.typeSummary
+        ? {
+            typeName: nativeDetails.typeSummary.name,
+            typeId: nativeDetails.typeSummary.expressId,
+            psets: [] as PropertySet[],
+          }
+        : null)
+    : typeProperties;
+  const renderedTypeEditImpact = isNativeLazySelection ? null : typeEditImpact;
+  const renderedIsTypeEntity = isNativeLazySelection
+    ? ((nativeDetails?.summary.type ?? '').endsWith('Type'))
+    : isTypeEntity;
+  const renderedExistingProps = useMemo(() => {
+    const keys = new Set<string>();
+    for (const pset of renderedMergedProperties) {
+      for (const prop of pset.properties) {
+        keys.add(`${pset.name}:${prop.name}`);
+      }
+    }
+    return keys;
+  }, [renderedMergedProperties]);
+  const renderedExistingQuants = useMemo(() => {
+    const keys = new Set<string>();
+    for (const qset of renderedQuantities) {
+      for (const q of qset.quantities) {
+        keys.add(`${qset.name}:${q.name}`);
+      }
+    }
+    return keys;
+  }, [renderedQuantities]);
+  const renderedExistingAttributeNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const attr of renderedAttributes) {
+      if (attr.value) names.add(attr.name);
+    }
+    return names;
+  }, [renderedAttributes]);
+
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
     const selectedModel = models.get(selectedModelId);
@@ -786,123 +903,7 @@ export function PropertiesPanel() {
     );
   }
 
-  if (selectedEntity && model?.nativeMetadata) {
-    const entityType = nativeDetails?.summary.type ?? 'Loading...';
-    const entityName = nativeDetails?.summary.name ?? `#${selectedEntity.expressId}`;
-    const entityGlobalId = nativeDetails?.summary.globalId ?? null;
-    return (
-      <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
-        <div className="p-4 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="p-2 border-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.1)]">
-              <Building2 className="h-5 w-5 text-zinc-700 dark:text-zinc-300" />
-            </div>
-            <div className="flex-1 min-w-0 pt-0.5">
-              <h3 className="font-bold text-sm truncate uppercase tracking-tight text-zinc-900 dark:text-zinc-100">
-                {entityName}
-              </h3>
-              <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">{entityType}</p>
-            </div>
-            <div className="flex gap-1 shrink-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-none border border-zinc-200 dark:border-zinc-800" onClick={() => entityGlobalId && copyToClipboard(entityGlobalId)}>
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Copy GUID</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-none border border-zinc-200 dark:border-zinc-800"
-                    onClick={() => cameraCallbacks.frameSelection?.()}
-                    disabled={!selectedEntityId || !cameraCallbacks.frameSelection}
-                  >
-                    <Focus className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Frame selection</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 rounded-none border border-zinc-200 dark:border-zinc-800"
-                    onClick={() => selectedEntityId && toggleEntityVisibility(selectedEntityId)}
-                    disabled={!selectedEntityId}
-                  >
-                    {selectedEntityId && isEntityVisible(selectedEntityId) ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{selectedEntityId && isEntityVisible(selectedEntityId) ? 'Hide' : 'Show'}</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-          {entityGlobalId && (
-            <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 break-all">
-              {entityGlobalId}
-            </div>
-          )}
-        </div>
-        <ScrollArea className="flex-1">
-          <div className="p-3 space-y-3">
-            {nativeDetails?.typeSummary && (
-              <div className="border-2 border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Type</div>
-                <div className="text-sm font-medium">{nativeDetails.typeSummary.name}</div>
-                <div className="text-xs font-mono text-zinc-500">{nativeDetails.typeSummary.type}</div>
-              </div>
-            )}
-            {nativeDetails?.spatial?.storeyName && (
-              <div className="border-2 border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Storey</div>
-                <div className="text-sm font-medium">{nativeDetails.spatial.storeyName}</div>
-              </div>
-            )}
-            {(nativeDetails?.properties ?? []).map((pset) => (
-              <div key={pset.name} className="border-2 border-zinc-200 dark:border-zinc-800 p-3 bg-white dark:bg-zinc-950">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">{pset.name}</div>
-                <div className="space-y-1">
-                  {pset.properties.map((property) => (
-                    <div key={`${pset.name}-${property.name}`} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="text-zinc-600 dark:text-zinc-400">{property.name}</span>
-                      <span className="text-right font-mono break-all">{String(property.value ?? '')}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {(nativeDetails?.quantities ?? []).map((qset) => (
-              <div key={qset.name} className="border-2 border-zinc-200 dark:border-zinc-800 p-3 bg-white dark:bg-zinc-950">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-500 mb-2">{qset.name}</div>
-                <div className="space-y-1">
-                  {qset.quantities.map((quantity) => (
-                    <div key={`${qset.name}-${quantity.name}`} className="flex items-start justify-between gap-3 text-sm">
-                      <span className="text-zinc-600 dark:text-zinc-400">{quantity.name}</span>
-                      <span className="text-right font-mono">{quantity.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {!nativeDetails && (
-              <div className="text-xs text-zinc-500">Loading on-demand properties...</div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-    );
-  }
-
-  if (!selectedEntityId || !modelQuery || !entityNode) {
+  if (!selectedEntityId || (!isNativeLazySelection && (!modelQuery || !entityNode))) {
     // Show model metadata when a single legacy model is loaded and nothing selected
     if (ifcDataStore && models.size === 0 && geometryResult) {
       const legacyModel: FederatedModel = {
@@ -939,11 +940,11 @@ export function PropertiesPanel() {
   }
 
   // These are safe to access after the early return check (entityNode is confirmed non-null above)
-  const entityType = entityNode.type;
-  const entityName = entityNode.name;
-  const entityGlobalId = entityNode.globalId;
-  const entityDescription = entityNode.description;
-  const entityObjectType = entityNode.objectType;
+  const entityType = renderedEntityType;
+  const entityName = renderedEntityName;
+  const entityGlobalId = renderedEntityGlobalId;
+  const entityDescription = renderedEntityDescription;
+  const entityObjectType = renderedEntityObjectType;
 
   return (
     <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -959,10 +960,10 @@ export function PropertiesPanel() {
             </h3>
             <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">{entityType}</p>
             {/* Show associated type entity for occurrences */}
-            {!isTypeEntity && typeProperties && (
-              <p className="text-[11px] font-mono text-indigo-500 dark:text-indigo-400 truncate" title={`${activeDataStore?.entities.getTypeName(typeProperties.typeId) || 'Type'}: ${typeProperties.typeName}`}>
+            {!renderedIsTypeEntity && renderedTypeProperties && (
+              <p className="text-[11px] font-mono text-indigo-500 dark:text-indigo-400 truncate" title={`${activeDataStore?.entities.getTypeName(renderedTypeProperties.typeId) || 'Type'}: ${renderedTypeProperties.typeName}`}>
                 <Building2 className="inline h-3 w-3 mr-1 -mt-0.5" />
-                {activeDataStore?.entities.getTypeName(typeProperties.typeId) || 'Type'}: {typeProperties.typeName}
+                {activeDataStore?.entities.getTypeName(renderedTypeProperties.typeId) || 'Type'}: {renderedTypeProperties.typeName}
               </p>
             )}
           </div>
@@ -1008,19 +1009,21 @@ export function PropertiesPanel() {
               </TooltipContent>
             </Tooltip>
             {/* Edit mode toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={editMode ? 'default' : 'ghost'}
-                  size="icon-xs"
-                  className={`rounded-none ${editMode ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
-                  onClick={() => setEditMode(!editMode)}
-                >
-                  <PenLine className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{editMode ? 'Exit Edit Mode' : 'Edit Properties'}</TooltipContent>
-            </Tooltip>
+            {!isNativeLazySelection && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={editMode ? 'default' : 'ghost'}
+                    size="icon-xs"
+                    className={`rounded-none ${editMode ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'hover:bg-zinc-200 dark:hover:bg-zinc-700'}`}
+                    onClick={() => setEditMode(!editMode)}
+                  >
+                    <PenLine className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{editMode ? 'Exit Edit Mode' : 'Edit Properties'}</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
 
@@ -1054,34 +1057,34 @@ export function PropertiesPanel() {
         )}
 
         {/* Spatial Location */}
-        {spatialInfo && (
+        {renderedSpatialInfo && (
           <div className="flex items-center gap-2 text-xs border border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-900/10 px-2 py-1.5 text-emerald-800 dark:text-emerald-400 min-w-0">
             <Layers className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-bold uppercase tracking-wide truncate min-w-0 flex-1">{spatialInfo.storeyName}</span>
+            <span className="font-bold uppercase tracking-wide truncate min-w-0 flex-1">{renderedSpatialInfo.storeyName}</span>
             <div className="flex items-center gap-1.5 shrink-0">
-              {spatialInfo.elevation !== undefined && (
+              {renderedSpatialInfo.elevation !== undefined && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-emerald-600/70 dark:text-emerald-500/70 font-mono whitespace-nowrap">
-                      {spatialInfo.elevation >= 0 ? '+' : ''}{spatialInfo.elevation.toFixed(2)}m
+                      {renderedSpatialInfo.elevation >= 0 ? '+' : ''}{renderedSpatialInfo.elevation.toFixed(2)}m
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="text-xs">Elevation: {spatialInfo.elevation >= 0 ? '+' : ''}{spatialInfo.elevation.toFixed(2)}m from ground</p>
+                    <p className="text-xs">Elevation: {renderedSpatialInfo.elevation >= 0 ? '+' : ''}{renderedSpatialInfo.elevation.toFixed(2)}m from ground</p>
                   </TooltipContent>
                 </Tooltip>
               )}
-              {spatialInfo.height !== undefined && (
+              {renderedSpatialInfo.height !== undefined && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="flex items-center gap-1 text-emerald-500/60 dark:text-emerald-400/60 font-mono text-[10px] whitespace-nowrap">
                       <ArrowUpDown className="h-2.5 w-2.5 shrink-0" />
-                      <span className="hidden sm:inline">{spatialInfo.height.toFixed(2)}m</span>
-                      <span className="sm:hidden">{spatialInfo.height.toFixed(1)}m</span>
+                      <span className="hidden sm:inline">{renderedSpatialInfo.height.toFixed(2)}m</span>
+                      <span className="sm:hidden">{renderedSpatialInfo.height.toFixed(1)}m</span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="text-xs">Height: {spatialInfo.height.toFixed(2)}m to next storey</p>
+                    <p className="text-xs">Height: {renderedSpatialInfo.height.toFixed(2)}m to next storey</p>
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -1090,7 +1093,7 @@ export function PropertiesPanel() {
         )}
 
         {/* World coordinates + Georeferencing — single consolidated section */}
-        {(entityCoordinates || georef || editMode) && (
+        {(entityCoordinates || renderedGeoref || editMode) && (
           <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
             <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-teal-500/30 px-2 py-1.5 text-teal-800 dark:text-teal-400 min-w-0 text-left group/coord">
               <Crosshair className="h-3.5 w-3.5 shrink-0" />
@@ -1104,8 +1107,8 @@ export function PropertiesPanel() {
                       <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
                     </span>
                   )}
-                  {georef?.projectedCRS?.name && (
-                    <span className="font-mono text-[9px] text-teal-500/60 shrink-0">{georef.projectedCRS.name}</span>
+                  {renderedGeoref?.projectedCRS?.name && (
+                    <span className="font-mono text-[9px] text-teal-500/60 shrink-0">{renderedGeoref.projectedCRS.name}</span>
                   )}
                   <span className="text-[9px] text-teal-500/0 group-hover/coord:text-teal-500/40 transition-colors shrink-0">details</span>
                 </>
@@ -1146,7 +1149,7 @@ export function PropertiesPanel() {
                 </div>
               )}
               <GeoreferencingPanel
-                georef={georef}
+                georef={renderedGeoref}
                 modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
                 enableEditing
                 schemaVersion={activeDataStore?.schemaVersion}
@@ -1167,17 +1170,17 @@ export function PropertiesPanel() {
       </div>
 
       {/* IFC Attributes */}
-      {attributes.length > 0 && (
+      {renderedAttributes.length > 0 && (
         <Collapsible defaultOpen className="border-b">
           <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 hover:bg-muted/50 text-left">
             <Tag className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">Attributes</span>
             {editMode && <PenLine className="h-3 w-3 text-purple-500 ml-1" />}
-            <span className="text-xs text-muted-foreground ml-auto">{attributes.length}</span>
+            <span className="text-xs text-muted-foreground ml-auto">{renderedAttributes.length}</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="divide-y border-t">
-              {attributes.map((attr) => (
+              {renderedAttributes.map((attr) => (
                 <div key={attr.name} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
                   <span className="text-muted-foreground truncate" title={attr.name}>{attr.name}</span>
                   {editMode && selectedEntity ? (
@@ -1202,16 +1205,16 @@ export function PropertiesPanel() {
       )}
 
       {/* Spatial Containment - for spatial containers (Project, Site, Building, Storey) */}
-      {spatialContainment && (
+      {renderedSpatialContainment && (
         <Collapsible defaultOpen className="border-b">
           <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 hover:bg-muted/50 text-left">
             <Layers className="h-4 w-4 text-emerald-600" />
             <span className="font-medium text-sm">Structure</span>
-            <span className="text-xs text-muted-foreground ml-auto">{spatialContainment.length}</span>
+            <span className="text-xs text-muted-foreground ml-auto">{renderedSpatialContainment.length}</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="divide-y border-t">
-              {spatialContainment.map((item) => (
+              {renderedSpatialContainment.map((item) => (
                 <div key={item.label} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-2 px-3 py-1.5 text-sm">
                   <span className="text-muted-foreground truncate" title={item.label}>{item.label}</span>
                   <span className="font-medium font-mono">{item.value}</span>
@@ -1254,26 +1257,26 @@ export function PropertiesPanel() {
         <ScrollArea className="flex-1 bg-white dark:bg-black">
           <TabsContent value="properties" className="m-0 p-3 overflow-hidden">
             {/* Edit toolbar - only shown when edit mode is active */}
-            {editMode && selectedEntity && (
+            {editMode && selectedEntity && !isNativeLazySelection && (
               <EditToolbar
                 modelId={selectedEntity.modelId}
                 entityId={selectedEntity.expressId}
                 entityType={entityType}
-                existingPsets={mergedProperties.map(p => p.name)}
-                existingQtos={quantities.map(q => q.name)}
+                existingPsets={renderedMergedProperties.map(p => p.name)}
+                existingQtos={renderedQuantities.map(q => q.name)}
                 schemaVersion={activeDataStore?.schemaVersion}
               />
             )}
-            {mergedProperties.length === 0 && classifications.length === 0 && !materialInfo && documents.length === 0 ? (
+            {renderedMergedProperties.length === 0 && renderedClassifications.length === 0 && !renderedMaterialInfo && renderedDocuments.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
                 {/* Occurrence/Type Properties (based on whether entity itself is a type) */}
-                {occurrenceProperties.length > 0 && (
+                {renderedOccurrenceProperties.length > 0 && (
                   <>
-                    {(isTypeEntity || (typeProperties && typeProperties.psets.length > 0)) && (
+                    {(renderedIsTypeEntity || (renderedTypeProperties && renderedTypeProperties.psets.length > 0)) && (
                       <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">
-                        {isTypeEntity ? (
+                        {renderedIsTypeEntity ? (
                           <>
                             <Building2 className="h-3 w-3 shrink-0 text-indigo-500" />
                             Type Properties:
@@ -1281,83 +1284,83 @@ export function PropertiesPanel() {
                         ) : 'Occurrence Properties:'}
                       </div>
                     )}
-                    {occurrenceProperties.map((pset: PropertySet) => (
+                    {renderedOccurrenceProperties.map((pset: PropertySet) => (
                       <PropertySetCard
                         key={`occ-${pset.name}`}
                         pset={pset}
                         modelId={selectedEntity?.modelId}
                         entityId={selectedEntity?.expressId}
-                        enableEditing={editMode}
-                        isTypeProperty={isTypeEntity}
-                        typeEditScope={isTypeEntity ? typeEditImpact ?? undefined : undefined}
+                        enableEditing={editMode && !isNativeLazySelection}
+                        isTypeProperty={renderedIsTypeEntity}
+                        typeEditScope={renderedIsTypeEntity ? renderedTypeEditImpact ?? undefined : undefined}
                       />
                     ))}
                   </>
                 )}
 
                 {/* Inherited Type Properties */}
-                {inheritedTypeProperties.length > 0 && typeProperties && (
+                {renderedInheritedTypeProperties.length > 0 && renderedTypeProperties && (
                   <>
-                    {occurrenceProperties.length > 0 && (
+                    {renderedOccurrenceProperties.length > 0 && (
                       <div className="border-t border-indigo-200 dark:border-indigo-800/50 pt-2 mt-2" />
                     )}
                     <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60 uppercase tracking-wider font-semibold">
                       <Building2 className="h-3 w-3 shrink-0" />
-                      <span className="truncate">Type Properties ({typeProperties.typeName})</span>
+                      <span className="truncate">Type Properties ({renderedTypeProperties.typeName})</span>
                     </div>
-                    {inheritedTypeProperties.map((pset: PropertySet) => (
+                    {renderedInheritedTypeProperties.map((pset: PropertySet) => (
                       <PropertySetCard
                         key={`type-${pset.name}`}
                         pset={pset}
                         modelId={selectedEntity?.modelId}
-                        entityId={typeProperties.typeId}
-                        enableEditing={editMode}
+                        entityId={renderedTypeProperties.typeId}
+                        enableEditing={editMode && !isNativeLazySelection}
                         isTypeProperty
-                        typeEditScope={typeEditImpact?.mode === 'inherited' ? typeEditImpact : undefined}
+                        typeEditScope={renderedTypeEditImpact?.mode === 'inherited' ? renderedTypeEditImpact : undefined}
                       />
                     ))}
                   </>
                 )}
 
                 {/* Classifications */}
-                {classifications.length > 0 && (
+                {renderedClassifications.length > 0 && (
                   <>
-                    {mergedProperties.length > 0 && (
+                    {renderedMergedProperties.length > 0 && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
-                    {classifications.map((classification, i) => (
+                    {renderedClassifications.map((classification, i) => (
                       <ClassificationCard key={`class-${i}`} classification={classification} />
                     ))}
                   </>
                 )}
 
                 {/* Materials */}
-                {materialInfo && (
+                {renderedMaterialInfo && (
                   <>
-                    {(mergedProperties.length > 0 || classifications.length > 0) && (
+                    {(renderedMergedProperties.length > 0 || renderedClassifications.length > 0) && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
-                    <MaterialCard material={materialInfo} />
+                    <MaterialCard material={renderedMaterialInfo} />
                   </>
                 )}
 
                 {/* Documents */}
-                {documents.length > 0 && (
+                {renderedDocuments.length > 0 && (
                   <>
-                    {(mergedProperties.length > 0 || classifications.length > 0 || materialInfo) && (
+                    {(renderedMergedProperties.length > 0 || renderedClassifications.length > 0 || renderedMaterialInfo) && (
                       <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
                     )}
-                    {documents.map((doc, i) => (
+                    {renderedDocuments.map((doc, i) => (
                       <DocumentCard key={`doc-${i}`} document={doc} />
                     ))}
                   </>
                 )}
 
                 {/* Relationships */}
-                {entityRelationships && (
+                {renderedEntityRelationships && (
                   <>
                     <div className="border-t border-zinc-200 dark:border-zinc-800 pt-2 mt-2" />
-                    <RelationshipsCard relationships={entityRelationships} />
+                    <RelationshipsCard relationships={renderedEntityRelationships} />
                   </>
                 )}
               </div>
@@ -1365,11 +1368,11 @@ export function PropertiesPanel() {
           </TabsContent>
 
           <TabsContent value="quantities" className="m-0 p-3 overflow-hidden">
-            {quantities.length === 0 ? (
+            {renderedQuantities.length === 0 ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No quantities</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
-                {quantities.map((qset: QuantitySet) => (
+                {renderedQuantities.map((qset: QuantitySet) => (
                   <QuantitySetCard key={qset.name} qset={qset} />
                 ))}
               </div>
@@ -1382,11 +1385,11 @@ export function PropertiesPanel() {
                 entityType={entityType}
                 modelId={selectedEntity.modelId}
                 entityId={selectedEntity.expressId}
-                existingPsets={mergedProperties.map(p => p.name)}
-                existingProps={existingProps}
-                existingQsets={quantities.map(q => q.name)}
-                existingQuants={existingQuants}
-                existingAttributes={existingAttributeNames}
+                existingPsets={renderedMergedProperties.map(p => p.name)}
+                existingProps={renderedExistingProps}
+                existingQsets={renderedQuantities.map(q => q.name)}
+                existingQuants={renderedExistingQuants}
+                existingAttributes={renderedExistingAttributeNames}
               />
             )}
           </TabsContent>

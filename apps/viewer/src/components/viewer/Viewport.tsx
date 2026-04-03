@@ -124,12 +124,13 @@ export function Viewport({
     }
 
     const globalId = pickResult.expressId;
+    const resolvedRef = resolveEntityRef(globalId);
 
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
 
     // Resolve globalId → EntityRef for property panel (single source of truth, never null)
-    setSelectedEntity(resolveEntityRef(globalId));
+    setSelectedEntity(resolvedRef);
   }, [setSelectedEntityId, setSelectedEntity]);
 
   // Ref to always access latest handlePickForSelection from event handlers
@@ -467,8 +468,10 @@ export function Viewport({
 
   // Helper: get pick options with visibility filtering
   const getPickOptions = () => {
-    const currentProgress = useViewerStore.getState().progress;
-    const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+    const currentState = useViewerStore.getState();
+    const currentProgress = currentState.progress;
+    const currentIsStreaming = currentState.geometryStreamingActive
+      || (currentProgress !== null && currentProgress.percent < 100);
     return {
       isStreaming: currentIsStreaming,
       hiddenIds: hiddenEntitiesRef.current,

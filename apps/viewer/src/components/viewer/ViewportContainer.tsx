@@ -340,42 +340,6 @@ export function ViewportContainer() {
   // without requiring a new geometry array reference.
   const geometryVersion = filteredVersionRef.current;
 
-  const viewportTraceRef = useRef<{
-    legacyMeshCount: number;
-    storeModelCount: number;
-    mergedMeshCount: number;
-    filteredMeshCount: number;
-    geometryVersion: number;
-    geometryUpdateTick: number;
-  } | null>(null);
-
-  useEffect(() => {
-    const snapshot = {
-      legacyMeshCount: geometryResult?.meshes?.length ?? 0,
-      storeModelCount: storeModels.size,
-      mergedMeshCount: mergedGeometryResult?.meshes?.length ?? 0,
-      filteredMeshCount: filteredGeometry?.length ?? 0,
-      geometryVersion,
-      geometryUpdateTick,
-    };
-    const previous = viewportTraceRef.current;
-    if (
-      !previous ||
-      previous.legacyMeshCount !== snapshot.legacyMeshCount ||
-      previous.storeModelCount !== snapshot.storeModelCount ||
-      previous.mergedMeshCount !== snapshot.mergedMeshCount ||
-      previous.filteredMeshCount !== snapshot.filteredMeshCount ||
-      previous.geometryVersion !== snapshot.geometryVersion
-      || previous.geometryUpdateTick !== snapshot.geometryUpdateTick
-    ) {
-      viewportTraceRef.current = snapshot;
-      void logToDesktopTerminal(
-        'info',
-        `[ViewportContainer] legacyMeshes=${snapshot.legacyMeshCount} models=${snapshot.storeModelCount} mergedMeshes=${snapshot.mergedMeshCount} filteredMeshes=${snapshot.filteredMeshCount} geometryVersion=${snapshot.geometryVersion} geometryTick=${snapshot.geometryUpdateTick}`
-      );
-    }
-  }, [storeModels, mergedGeometryResult, filteredGeometry, geometryVersion, geometryUpdateTick]);
-
   // Compute combined isolation set (storeys + manual isolation)
   // This is passed to the renderer for batch-level visibility filtering
   // Now supports multi-model: aggregates elements from all models for selected storeys
