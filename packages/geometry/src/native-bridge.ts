@@ -615,47 +615,76 @@ export class NativeBridge implements IPlatformBridge {
     let lastProgressAt = performance.now();
     let processedMeshes = 0;
 
-    while (true) {
-      const status = await this.invoke!<NativeGeometryCacheStreamStatus | null>(
-        'get_native_geometry_cache_stream_status',
-        { cacheKey }
-      );
+    // Event-driven shard notification: Rust emits "native-shard-ready" when
+    // a packed shard is written.  We resolve immediately instead of sleeping.
+    let shardReadyResolve: (() => void) | null = null;
+    const unlistenShardReady = this.listen
+      ? await this.listen<{ shardIndex: number }>('native-shard-ready', () => {
+          if (shardReadyResolve) {
+            const resolve = shardReadyResolve;
+            shardReadyResolve = null;
+            resolve();
+          }
+        })
+      : null;
 
-      if (status?.failed) {
-        throw new Error(status.errorMessage ?? `Packed shard stream failed for ${cacheKey}`);
-      }
+    function waitForShardOrTimeout(timeoutMs: number): Promise<void> {
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, timeoutMs);
+        shardReadyResolve = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    }
 
-      const readyShardCount = status?.readyShardCount ?? 0;
-      while (nextShardIndex < readyShardCount) {
-        const shardPayload = await this.invoke!<unknown>(
-          'get_native_geometry_cache_packed_shard',
-          { cacheKey, shardIndex: nextShardIndex }
+    try {
+      while (true) {
+        const status = await this.invoke!<NativeGeometryCacheStreamStatus | null>(
+          'get_native_geometry_cache_stream_status',
+          { cacheKey }
         );
-        const batch = decodePackedGeometryCacheShard(
-          shardPayload,
-          performance.now() - streamStartTime,
-          nextShardIndex + 1
-        );
-        processedMeshes = Math.max(processedMeshes, batch.progress.processed);
-        lastProgressAt = performance.now();
-        options.onBatch?.(batch);
-        nextShardIndex += 1;
-        if (nextShardIndex < readyShardCount) {
-          await yieldToEventLoop();
+
+        if (status?.failed) {
+          throw new Error(status.errorMessage ?? `Packed shard stream failed for ${cacheKey}`);
         }
-      }
 
-      if (status?.done && nextShardIndex >= readyShardCount) {
-        break;
-      }
+        const readyShardCount = status?.readyShardCount ?? 0;
+        // Read ALL ready shards in burst — no yield between reads
+        while (nextShardIndex < readyShardCount) {
+          const shardPayload = await this.invoke!<unknown>(
+            'get_native_geometry_cache_packed_shard',
+            { cacheKey, shardIndex: nextShardIndex }
+          );
+          const batch = decodePackedGeometryCacheShard(
+            shardPayload,
+            performance.now() - streamStartTime,
+            nextShardIndex + 1
+          );
+          processedMeshes = Math.max(processedMeshes, batch.progress.processed);
+          lastProgressAt = performance.now();
+          options.onBatch?.(batch);
+          nextShardIndex += 1;
+        }
 
-      if (performance.now() - lastProgressAt > 15_000) {
-        throw new Error(
-          `Packed shard path stream stalled for ${cacheKey}: shards=${nextShardIndex}/${readyShardCount} processed=${processedMeshes}`
-        );
-      }
+        if (status?.done && nextShardIndex >= readyShardCount) {
+          break;
+        }
 
-      await sleep(8);
+        if (performance.now() - lastProgressAt > 60_000) {
+          throw new Error(
+            `Packed shard path stream stalled for ${cacheKey}: shards=${nextShardIndex}/${readyShardCount} processed=${processedMeshes}`
+          );
+        }
+
+        // Wait for shard-ready event from Rust (instant notification) with
+        // a short timeout fallback in case events are missed.
+        await waitForShardOrTimeout(50);
+      }
+    } finally {
+      if (unlistenShardReady) {
+        unlistenShardReady();
+      }
     }
 
     const stats = await statsPromise;

@@ -120,6 +120,23 @@ export class Scene {
    * Accumulates multiple mesh pieces per expressId (elements can have multiple geometry pieces)
    */
   addMeshData(meshData: MeshData): void {
+    // For color-merged batches with per-vertex entityIds, register the mesh
+    // under EVERY unique entity so picking/visibility/selection can find it.
+    if (meshData.entityIds && meshData.entityIds.length > 0) {
+      const seen = new Set<number>();
+      for (let i = 0; i < meshData.entityIds.length; i++) {
+        const eid = meshData.entityIds[i];
+        if (seen.has(eid)) continue;
+        seen.add(eid);
+        const existing = this.meshDataMap.get(eid);
+        if (existing) {
+          existing.push(meshData);
+        } else {
+          this.meshDataMap.set(eid, [meshData]);
+        }
+      }
+      return;
+    }
     const existing = this.meshDataMap.get(meshData.expressId);
     if (existing) {
       existing.push(meshData);
@@ -145,7 +162,34 @@ export class Scene {
       if (pieces.length === 0) return undefined;
     }
 
-    if (pieces.length === 1) return pieces[0];
+    if (pieces.length === 1) {
+      const single = pieces[0];
+      // For color-merged batches, extract only the vertices belonging to
+      // this expressId so selection highlighting is per-entity, not the
+      // entire merged batch.
+      if (single.entityIds) {
+        return this.extractEntityFromMergedMesh(single, expressId);
+      }
+      return single;
+    }
+
+    // For multiple pieces that are ALL merged batches referencing the same
+    // entity, extract from each and concatenate.
+    if (pieces.some(p => p.entityIds)) {
+      const extracted: MeshData[] = [];
+      for (const piece of pieces) {
+        if (piece.entityIds) {
+          const ex = this.extractEntityFromMergedMesh(piece, expressId);
+          if (ex) extracted.push(ex);
+        } else {
+          extracted.push(piece);
+        }
+      }
+      if (extracted.length === 0) return undefined;
+      if (extracted.length === 1) return extracted[0];
+      pieces = extracted;
+      // Fall through to the normal multi-piece merge below
+    }
 
     // Check if all pieces have the same color (within tolerance)
     // This handles multi-material elements like windows (frame vs glass)
@@ -216,6 +260,68 @@ export class Scene {
    * @param expressId - The expressId to look up
    * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
+  /**
+   * Extract only the vertices/triangles belonging to `targetId` from a
+   * color-merged MeshData that contains many entities.  Returns a new
+   * lightweight MeshData suitable for selection highlighting.
+   */
+  private extractEntityFromMergedMesh(merged: MeshData, targetId: number): MeshData | undefined {
+    const entityIds = merged.entityIds!;
+    const positions = merged.positions;
+    const normals = merged.normals;
+    const indices = merged.indices;
+
+    // Build a vertex mask and remap table
+    const vertexCount = entityIds.length;
+    const keep = new Uint8Array(vertexCount);
+    let keptCount = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (entityIds[i] === targetId) { keep[i] = 1; keptCount++; }
+    }
+    if (keptCount === 0) return undefined;
+
+    // Remap old vertex index → new compacted index
+    const remap = new Uint32Array(vertexCount);
+    let newIdx = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (keep[i]) { remap[i] = newIdx++; }
+    }
+
+    // Compact positions & normals
+    const outPos = new Float32Array(keptCount * 3);
+    const outNorm = new Float32Array(keptCount * 3);
+    let outOff = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (!keep[i]) continue;
+      const src = i * 3;
+      outPos[outOff] = positions[src];
+      outPos[outOff + 1] = positions[src + 1];
+      outPos[outOff + 2] = positions[src + 2];
+      outNorm[outOff] = normals[src];
+      outNorm[outOff + 1] = normals[src + 1];
+      outNorm[outOff + 2] = normals[src + 2];
+      outOff += 3;
+    }
+
+    // Compact indices (only triangles where ALL 3 vertices belong to target)
+    const tmpIdx: number[] = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+      if (keep[a] && keep[b] && keep[c]) {
+        tmpIdx.push(remap[a], remap[b], remap[c]);
+      }
+    }
+    if (tmpIdx.length === 0) return undefined;
+
+    return {
+      expressId: targetId,
+      positions: outPos,
+      normals: outNorm,
+      indices: new Uint32Array(tmpIdx),
+      color: merged.color,
+    };
+  }
+
   hasMeshData(expressId: number, modelIndex?: number): boolean {
     const pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return false;
@@ -1067,11 +1173,12 @@ export class Scene {
       const normals = mesh.normals;
       const vertexCount = positions.length / 3;
 
-      // Interleave vertex data (position + normal)
+      // Interleave vertex data (position + normal + entityId)
       // This loop is O(n) per mesh and unavoidable for interleaving
       let outIdx = vertexBase * 7;
+      const perVertexEntityIds = mesh.entityIds; // color-merged batches
       let entityId = mesh.expressId >>> 0;
-      if (entityId > MAX_ENCODED_ENTITY_ID) {
+      if (!perVertexEntityIds && entityId > MAX_ENCODED_ENTITY_ID) {
         if (!warnedEntityIdRange) {
           warnedEntityIdRange = true;
           console.warn('[Renderer] expressId exceeds 24-bit seam-ID encoding range; seam lines may collide.');
@@ -1089,7 +1196,7 @@ export class Scene {
         vertexData[outIdx++] = normals[srcIdx];
         vertexData[outIdx++] = normals[srcIdx + 1];
         vertexData[outIdx++] = normals[srcIdx + 2];
-        vertexDataU32[outIdx++] = entityId;
+        vertexDataU32[outIdx++] = perVertexEntityIds ? (perVertexEntityIds[i] >>> 0) : entityId;
 
         // Update bounds
         if (px < minX) minX = px;
